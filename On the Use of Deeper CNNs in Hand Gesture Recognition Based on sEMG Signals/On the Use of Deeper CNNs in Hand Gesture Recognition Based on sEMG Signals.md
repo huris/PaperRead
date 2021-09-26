@@ -38,15 +38,104 @@ MyoUP数据集由**8个研究对象**采集（3女5男，1左手7右手，年龄
 
 # Data Analysis And Network Architecture
 
+## Data Analysis
 
+用于分类任务的数据集：
 
+- **Ninapro-DB1**：由10 Otto Bock MyoBock 13E200 electrodes记录
+- **Ninapro-DB5**：由Myo手环记录
+- **MyoUP**：由Myo手环记录
 
+DB1的记录数据由10通道sEMG信号组成，采样率为100Hz。
 
+由文献（M. Atzori, M. Cognolato, and H. Müller. “Deep Learning with Convolutional Neural Networks applied to electromyography data: A resource for the classification of movements for prosthetic hands,” Frontiers in Neurorobotics, 10, 2016  ）中方法，信号进行1Hz的低通过滤，并且用长度为150ms以及60%交叠的滑动窗口构建**CNN输入图像（分辨率10x15）**。同样的处理方式用于**Myo数据（分辨率8x15，8个通道**）。
 
+为了避免过拟合同时增加模型的准确率，应用**数据增强技术**来增加图片的数目。具体来说，第一次采用**原始图片**训练，第二次采用**高斯白噪声（SNR值为30dB）模糊后的图片**进行训练。
 
+最后将图片划分为**训练、验证和测试集**。
 
+## CNN模型
 
+CNN模型由**6个卷积块**（32【3x4】，32【3x3】，32【2x1】，64【1x3】，64【1x2】，128【2x2】）构成，所有的卷积操作后紧跟**ReLU激活函数**，第2个和第4个卷积块中加入**最大池化操作**（2x2），第2个、第4个和第6个卷积块中加入**dropout层（丢失率0.15）**。
 
+<img src="./images/2.png"  style="zoom:80%;" />
+
+**3个全连接层**（512，128，64）紧跟其后，同时伴随**ReLU激活函数**和**dropout层（丢失率0.25）**。
+
+最后是**含有softmax激活函数的全连接层（K为手势种类个数）**。
+
+模型权重使用**Xavier初始化**。（X.Glorot and Y.Bengio. “Understanding the difficulty of training deep feedforward neural networks,” In Proceedings of the 13th International Conference on Artificial Intelligence and Statistics (AISTATS), Sardinia, 249-256, 2010  ）
+
+>如果没有全连接层，则分类效果会显著性降低。另一方面，如果增加网络深度则会导致过拟合。
+>
+>经过作者测试，丢失率为0.25得到的dropout结果是最好的。
+
+网络的**超参数**选择是通过**5重交叉验证**和**手动调参**来进行的，验证集由DB1中**随机选择的四个志愿者数据组成**。
+
+作者测试了**48种不同的超参数组合**，最后选择了最优值。
+
+<img src="./images/3.png"  style="zoom:80%;" />
+
+优化器选择的是**stochastic gradient descent（SGD）**而不是**Adam**，因为后者会在一些epochs执行后导致**过拟合**。
+
+<img src="./images/4.png"  style="zoom:100%;" />
+
+通过这种方式，作者稳定了**验证集的loss**，并使验证准确率**提高了大约 3%**。
+
+# Results And Discussion
+
+作者为了评估模型，分别在**基准数据集（Ninapro DB1和Ninapro DB5）**和**自己生成的数据集（MyoUP）**进行了验证。
+
+对于**Ninapro DB1**，作者评估了网络在**3个有代表性的手势组上的性能**，同时还将**分类准确度**与**较浅的CNN的准确度**进行比较。
+
+然后，使用**Ninapro DB5**和**MyoUP**进行实验，测量使用**低成本商业设备Myo**记录 sEMG 数据时的网络行为。
+
+## Ninapro DB1
+
+首先，作者使用模型对DB1的数据集进行测试，针对每个志愿者的3组不同的手势组（E1、E2和E3）：
+
+- 第一组包括12个基本的手指移动。
+- 第二组包括8个收张手部运动和9个基本的手腕运动。
+- 第三组包括23个抓握运动。
+
+评估结果基于测试集上的平均准确率，从结果中看出，模型**更容易识别出第一组包含简单手指移动的动作（80.04%）**，**较难识别出复杂的抓握动作（64.42%）**。
+
+<img src="./images/5.png"  style="zoom:100%;" />
+
+- A：对每一个人的单独数据进行训练
+- B：对所有人的数据进行训练
+
+从这个例子中看出，在深度学习中，**准确率不一定随着数据量的增加而增加**。
+
+（文献：P. Tsinganos, B. Cornelis, J. Cornelis, B. Jansen, and A. Skodras. “Deep Learning in EMG-based Gesture Recognition,” In Proceedings of the 5th International Conference on Physiological Computing Systems (PhyCS), Seville, 107-114, 2018.  有解释：对于相似的手势，例如**拇指的内收和屈曲**会导致误判。）
+
+下图展示了为随机对象计算的**手势分类混淆矩阵**，作者将这个过程**重复了五次**，以便系统地了解**哪些运动组合会导致错误分类**。
+
+<img src="./images/6.png"  style="zoom:100%;" />
+
+最后，作者与文献（M. Atzori, M. Cognolato, and H. Müller. “Deep Learning with Convolutional Neural Networks applied to electromyography data: A resource for the classification of movements for prosthetic hands,” Frontiers in Neurorobotics, 10, 2016.  ）的方法进行了对比，得出结果：
+
+<img src="./images/7.png"  style="zoom:100%;" />
+
+作者的CNN更深、更复杂并且使用更多数据进行训练，因此在准确度上超过了文献中的CNN， 另一方面，作者的模型性能不如文献中结果最高的算法（**随机森林**）。
+
+## Ninapro DB5 And MyoUP
+
+作者测试他们的模型**在DB5数据集中对12个手势进行分类的准确度**，与它对**MyoUP数据集**中完全相同的手势进行分类的准确度相比。
+
+<img src="./images/8.png"  style="zoom:100%;" />
+
+从表中可以看出，作者的模型在MyoUP数据集上训练得到更好的准确率。
+
+之后，在所有MyoUP的手势中进行实验，发现**准确率在73%左右**。选择了11个最容易识别的手势，**准确率增加到86%**。
+
+<img src="./images/9.png"  style="zoom:100%;" />
+
+# Conclusions
+
+- 本文提出一种**新颖的CNN模型**，基于sEMG信号来识别手部姿势。该CNN模型相比于之前文献中的结果，**提升了5.5%的准确率**。
+- 本文贡献了**sEMG数据集MyoUP**，由Myo手环采集。使用同样的网络对比基准数据集Ninapro DB5（55.31%），**MyoUP展现了更高的准确率**（78.98%）。
+- 由上述结果中看出，作者提出的**网络和数据集**在手部姿势识别任务中是可靠的。之后会进一步确定是否将某些相似的手部姿势进行分类后，可以得出更高的准确率。
 
 
 
